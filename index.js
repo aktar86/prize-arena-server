@@ -27,6 +27,7 @@ const run = async () => {
 
     const db = client.db("prize_arena_DB");
     const usersCollection = db.collection("users");
+    const creatorsCollection = db.collection("creators");
 
     //users related api
     app.post("/users", async (req, res) => {
@@ -35,6 +36,16 @@ const run = async () => {
       user.createAt = new Date();
 
       const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
+
+    //creator related api
+    app.post("/creators", async (req, res) => {
+      const creator = req.body;
+      creator.role = "pending";
+      creator.createAt = new Date();
+
+      const result = await creatorsCollection.insertOne(creator);
       res.send(result);
     });
 
