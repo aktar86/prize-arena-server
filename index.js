@@ -41,7 +41,7 @@ const run = async () => {
 
     //creator related api
     app.get("/creators", async (req, res) => {
-      const cursor = creatorsCollection.find();
+      const cursor = creatorsCollection.find().sort({ createAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
