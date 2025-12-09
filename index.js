@@ -40,10 +40,26 @@ const run = async () => {
     });
 
     //creator related api
+    app.get("/creators", async (req, res) => {
+      const cursor = creatorsCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    
+
     app.post("/creators", async (req, res) => {
       const creator = req.body;
-      creator.role = "pending";
+      creator.status = "pending";
       creator.createAt = new Date();
+      const email = creator.creatorEmail;
+
+      const existingCreator = await creatorsCollection.findOne({
+        creatorEmail: email,
+      });
+      if (existingCreator) {
+        return res.status(404).send({ message: "creator exists" });
+      }
 
       const result = await creatorsCollection.insertOne(creator);
       res.send(result);
