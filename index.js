@@ -1,4 +1,4 @@
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const express = require("express");
 const cors = require("cors");
@@ -46,7 +46,26 @@ const run = async () => {
       res.send(result);
     });
 
-    
+    app.patch("/creators/:id", async (req, res) => {
+      const status = req.body.status;
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          status: status,
+        },
+      };
+
+      const result = await creatorsCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
+    app.delete("/creators/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await creatorsCollection.deleteOne(query);
+      res.send(result);
+    });
 
     app.post("/creators", async (req, res) => {
       const creator = req.body;
