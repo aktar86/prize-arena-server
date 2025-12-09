@@ -1,11 +1,53 @@
+const { MongoClient, ServerApiVersion } = require("mongodb");
+
 const express = require("express");
 const cors = require("cors");
 const app = express();
+require("dotenv").config();
 const port = process.env.PORT || 4000;
 
 // middleware
 app.use(cors());
 app.use(express.json()); //for converting stringify to object
+
+const uri = process.env.PA_MONGO_URI;
+
+// Create a MongoClient
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
+});
+
+const run = async () => {
+  try {
+    await client.connect();
+
+    const db = client.db("prize_arena_DB");
+    const usersCollection = db.collection("users");
+
+    //users related api
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      user.role = "user";
+      user.createAt = new Date();
+
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
+
+    //sent a ping to confirm
+    await client.db("admin").command({ ping: 1 });
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
+  } finally {
+    // await client.close();
+  }
+};
+run().catch(console.dir);
 
 app.get("/", (req, res) => {
   res.send("prize arena server is running");
