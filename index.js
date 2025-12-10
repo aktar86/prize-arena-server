@@ -54,8 +54,16 @@ const run = async () => {
     const db = client.db("prize_arena_DB");
     const usersCollection = db.collection("users");
     const creatorsCollection = db.collection("creators");
+    const contestCollection = db.collection("contests");
 
     //users related api
+
+    app.get("/users", async (req, res) => {
+      const cursor = usersCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
     app.post("/users", async (req, res) => {
       const user = req.body;
       user.role = "user";
@@ -107,6 +115,15 @@ const run = async () => {
       }
 
       const result = await creatorsCollection.insertOne(creator);
+      res.send(result);
+    });
+
+    // contest related api
+    app.post("/contests", async (req, res) => {
+      const contest = req.body;
+      contest.creatAt = new Date();
+
+      const result = await contestCollection.insertOne(contest);
       res.send(result);
     });
 
