@@ -1,4 +1,5 @@
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const admin = require("firebase-admin");
 
 const express = require("express");
 const cors = require("cors");
@@ -6,9 +7,34 @@ const app = express();
 require("dotenv").config();
 const port = process.env.PORT || 4000;
 
+const serviceAccount = require("./prize-arena-firebase-adminsdk.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 // middleware
 app.use(cors());
 app.use(express.json()); //for converting stringify to object
+
+//verify fire base token
+const verifyFireBaseToken = async (req, res, next) => {
+  console.log("Headers aktar: ", req.headers);
+
+  const token = req.headers.authorization;
+  if (!token) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
+  try {
+    const idToken = token.split(" ")[1];
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    console.log(decoded);
+  } catch {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+  next();
+};
 
 const uri = process.env.PA_MONGO_URI;
 
@@ -40,7 +66,7 @@ const run = async () => {
     });
 
     //creator related api
-    app.get("/creators", async (req, res) => {
+    app.get("/creators", verifyFireBaseToken, async (req, res) => {
       const cursor = creatorsCollection.find().sort({ createAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
