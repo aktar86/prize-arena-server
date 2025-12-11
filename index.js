@@ -158,6 +158,7 @@ const run = async () => {
     // contest related api
     app.post("/contests", async (req, res) => {
       const contest = req.body;
+      contest.status = "pending";
       contest.creatAt = new Date();
 
       const result = await contestCollection.insertOne(contest);
@@ -182,5 +183,3 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
-
-// npm install cors
