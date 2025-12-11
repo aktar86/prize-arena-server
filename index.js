@@ -156,6 +156,12 @@ const run = async () => {
     });
 
     // contest related api
+    app.get("/contests", async (req, res) => {
+      const cursor = contestCollection.find().sort({ creatAt: -1 });
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
     app.post("/contests", async (req, res) => {
       const contest = req.body;
       contest.status = "pending";
