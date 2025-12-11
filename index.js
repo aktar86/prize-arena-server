@@ -177,6 +177,13 @@ const run = async () => {
       res.send(result);
     });
 
+    app.delete("/contests/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await contestCollection.deleteOne(query);
+      res.send(result);
+    });
+
     app.post("/contests", async (req, res) => {
       const contest = req.body;
       contest.status = "pending";
