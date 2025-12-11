@@ -64,6 +64,14 @@ const run = async () => {
       res.send(result);
     });
 
+    //for useRole hook api
+    app.get("/users/:email/role", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      // res.send(result); //need to understand here
+    });
+
     app.patch("/users/:id/role", async (req, res) => {
       const id = req.params.id;
       const roleInfo = req.body;
@@ -105,6 +113,21 @@ const run = async () => {
       };
 
       const result = await creatorsCollection.updateOne(query, updateDoc);
+
+      if (status === "approved") {
+        const email = req.body.email;
+        const userQuery = { email };
+        const updateUser = {
+          $set: {
+            role: "creator",
+          },
+        };
+
+        const result = await usersCollection.updateOne(userQuery, updateUser);
+        console.log("update user:", result);
+        // res.send(result);
+      }
+
       res.send(result);
     });
 
