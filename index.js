@@ -64,6 +64,20 @@ const run = async () => {
       res.send(result);
     });
 
+    app.patch("/users/:id/role", async (req, res) => {
+      const id = req.params.id;
+      const roleInfo = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          role: roleInfo.role,
+        },
+      };
+
+      const result = await usersCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
     app.post("/users", async (req, res) => {
       const user = req.body;
       user.role = "user";
