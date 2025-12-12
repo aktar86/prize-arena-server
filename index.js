@@ -175,6 +175,18 @@ const run = async () => {
       res.send(result);
     });
 
+    app.get("/contests/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await contestCollection.findOne(query);
+
+      if (!result) {
+        return res.status(404).send({ message: "content not found" });
+      }
+
+      res.send(result);
+    });
+
     app.patch("/contests/:id", async (req, res) => {
       const statusInfo = req.body;
       const id = req.params.id;
