@@ -199,7 +199,7 @@ const run = async () => {
 
     app.post("/contests", async (req, res) => {
       const contest = req.body;
-      contest.status = "pending";
+      contest.status = "Pending";
       contest.createAt = new Date();
 
       const result = await contestCollection.insertOne(contest);
