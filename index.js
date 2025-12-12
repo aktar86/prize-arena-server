@@ -157,7 +157,20 @@ const run = async () => {
 
     // contest related api
     app.get("/contests", async (req, res) => {
-      const cursor = contestCollection.find().sort({ creatAt: -1 });
+      const { email, status } = req.query;
+
+      let query = {};
+      //my contest query
+      if (email) {
+        query.creatorEmail = email;
+      }
+
+      //all contest page confirmed query
+      if (status) {
+        query.status = status;
+      }
+
+      const cursor = contestCollection.find(query).sort({ createAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -187,7 +200,7 @@ const run = async () => {
     app.post("/contests", async (req, res) => {
       const contest = req.body;
       contest.status = "pending";
-      contest.creatAt = new Date();
+      contest.createAt = new Date();
 
       const result = await contestCollection.insertOne(contest);
       res.send(result);
