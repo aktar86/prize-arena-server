@@ -6,6 +6,7 @@ const cors = require("cors");
 const app = express();
 require("dotenv").config();
 const port = process.env.PORT || 4000;
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
 
 const serviceAccount = require("./prize-arena-firebase-adminsdk.json");
 
@@ -57,7 +58,6 @@ const run = async () => {
     const contestCollection = db.collection("contests");
 
     //users related api
-
     app.get("/users", async (req, res) => {
       const cursor = usersCollection.find();
       const result = await cursor.toArray();
@@ -213,9 +213,43 @@ const run = async () => {
       const contest = req.body;
       contest.status = "Pending";
       contest.createAt = new Date();
+      contest.participation = 0;
+      contest.winner = {
+        name: null,
+        userId: null,
+        declaredAt: null,
+      };
 
       const result = await contestCollection.insertOne(contest);
       res.send(result);
+    });
+
+    //payment related api
+    app.post("/create-checkout-session", async (req, res) => {
+      const paymentInfo = req.body;
+      const amount = parseInt(paymentInfo.cost) * 100;
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            price: {
+              currency: "USD",
+              unit_amount: amount,
+              product_data: {
+                name: `Please pay for: ${paymentInfo.contestTitle}`,
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        mode: "payment",
+        metadata: {
+          paymentId: paymentInfo.contestId,
+          paymentName: paymentInfo.contestTitle,
+        },
+        success_url: `${YOUR_DOMAIN}?success=true`,
+      });
+
+      res.redirect(303, session.url);
     });
 
     //sent a ping to confirm
