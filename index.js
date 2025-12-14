@@ -14,6 +14,21 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
+//----------------Tracking Id
+const crypto = require("crypto");
+
+function generateTrackingId() {
+  const prefix = "PRCL"; // your brand prefix
+
+  // YYYYMMDD format
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+
+  // 6-character random HEX
+  const random = crypto.randomBytes(3).toString("hex").toUpperCase();
+
+  return `${prefix}-${date}-${random}`;
+}
+
 // middleware
 app.use(cors());
 app.use(express.json()); //for converting stringify to object
@@ -56,6 +71,8 @@ const run = async () => {
     const usersCollection = db.collection("users");
     const creatorsCollection = db.collection("creators");
     const contestCollection = db.collection("contests");
+    const paymentCollection = db.collection("payments");
+    const participationCollection = db.collection("participation");
 
     //users related api
     app.get("/users", async (req, res) => {
@@ -213,7 +230,7 @@ const run = async () => {
       const contest = req.body;
       contest.status = "Pending";
       contest.createAt = new Date();
-      contest.participation = 0;
+      contest.participantsCount = null;
       contest.winner = {
         name: null,
         userId: null,
@@ -231,25 +248,114 @@ const run = async () => {
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
-            price: {
+            price_data: {
               currency: "USD",
               unit_amount: amount,
               product_data: {
-                name: `Please pay for: ${paymentInfo.contestTitle}`,
+                name: `Please pay for: ${paymentInfo.title}`,
               },
             },
             quantity: 1,
           },
         ],
         mode: "payment",
+        customer_email: paymentInfo.email,
         metadata: {
           paymentId: paymentInfo.contestId,
-          paymentName: paymentInfo.contestTitle,
+          paymentName: paymentInfo.title,
+          userUID: paymentInfo.userUID,
+          userEmail: paymentInfo.email,
+          upcomingDeadline: paymentInfo.deadline,
         },
-        success_url: `${YOUR_DOMAIN}?success=true`,
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancel`,
       });
 
-      res.redirect(303, session.url);
+      res.send({ url: session.url });
+    });
+
+    app.patch("/payment-success", async (req, res) => {
+      try {
+        const sessionId = req.query.session_id;
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+        if (session.payment_status !== "paid") {
+          return res.send({ success: false });
+        }
+
+        //payment existing check
+        const transactionId = session.payment_intent;
+        const queryExistingPayment = { transactionId: transactionId };
+        const existingPayment = await paymentCollection.findOne(
+          queryExistingPayment
+        );
+
+        if (existingPayment) {
+          return res.send({
+            message: "Payment already exists",
+            trackingId: existingPayment.trackingId,
+            transactionId,
+          });
+        }
+
+        const trackingId = generateTrackingId();
+        const contestId = session.metadata.paymentId;
+        const query = { _id: new ObjectId(contestId) };
+
+        // Increment participant count
+        await contestCollection.updateOne(query, {
+          $inc: { participantsCount: 1 },
+        });
+
+        // Save payment info
+        const payment = {
+          contestId,
+          contestName: session.metadata.paymentName,
+          userUID: session.metadata.userUID,
+          userEmail: session.metadata.userEmail,
+          amount: session.amount_total / 100,
+          currency: session.currency,
+          transactionId: transactionId,
+          paymentStatus: session.payment_status,
+          upcomingDeadline: session.metadata.upcomingDeadline,
+          paidAt: new Date(),
+          trackingId,
+        };
+        const paymentResult = await paymentCollection.insertOne(payment);
+
+        // Create participation if not exists
+        const alreadyParticipated = await participationCollection.findOne({
+          contestId,
+          userUID: session.metadata.userUID,
+        });
+
+        let participationResult = null;
+        if (!alreadyParticipated) {
+          const participation = {
+            contestId,
+            userUID: session.metadata.userUID,
+            userEmail: session.metadata.userEmail,
+            paymentStatus: session.payment_status,
+            registeredAt: new Date(),
+            hasSubmitted: false,
+          };
+          participationResult = await participationCollection.insertOne(
+            participation
+          );
+        }
+
+        //  Final response
+        res.send({
+          success: true,
+          trackingId,
+          transactionId,
+          paymentInfo: paymentResult,
+          participationInfo: participationResult,
+        });
+      } catch (error) {
+        console.error("Payment success error:", error);
+        res.status(500).send({ success: false, error: true });
+      }
     });
 
     //sent a ping to confirm
