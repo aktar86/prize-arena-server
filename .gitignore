@@ -1,3 +1,4 @@
 node_modules
 .env
 prize-arena-firebase-adminsdk.json
+test.js 

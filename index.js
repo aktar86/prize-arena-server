@@ -187,7 +187,9 @@ const run = async () => {
         query.status = status;
       }
 
-      const cursor = contestCollection.find(query).sort({ createAt: -1 });
+      const cursor = contestCollection
+        .find(query)
+        .sort({ participantsCount: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -230,7 +232,7 @@ const run = async () => {
       const contest = req.body;
       contest.status = "Pending";
       contest.createAt = new Date();
-      contest.participantsCount = null;
+      contest.participantsCount = 0;
       contest.winner = {
         name: null,
         userId: null,
@@ -274,42 +276,75 @@ const run = async () => {
       res.send({ url: session.url });
     });
 
+    //polished by deepseek
     app.patch("/payment-success", async (req, res) => {
       try {
         const sessionId = req.query.session_id;
-        const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-        if (session.payment_status !== "paid") {
-          return res.send({ success: false });
+        // Validate sessionId
+        if (!sessionId) {
+          return res.status(400).json({
+            success: false,
+            message: "Session ID is required",
+          });
         }
 
-        //payment existing check
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+        // Check if payment is successful
+        if (session.payment_status !== "paid") {
+          return res.status(400).json({
+            success: false,
+            message: "Payment not completed",
+          });
+        }
+
+        // Check existing payment
         const transactionId = session.payment_intent;
         const queryExistingPayment = { transactionId: transactionId };
         const existingPayment = await paymentCollection.findOne(
           queryExistingPayment
         );
 
+        // If payment already exists, return existing data
         if (existingPayment) {
-          return res.send({
-            message: "Payment already exists",
+          return res.json({
+            success: true,
+            message: "Payment already processed",
             trackingId: existingPayment.trackingId,
             transactionId,
+            isAlreadyProcessed: true,
           });
         }
 
         const trackingId = generateTrackingId();
         const contestId = session.metadata.paymentId;
+
+        // Validate contestId
+        if (!contestId) {
+          return res.status(400).json({
+            success: false,
+            message: "Contest ID not found",
+          });
+        }
+
         const query = { _id: new ObjectId(contestId) };
 
         // Increment participant count
-        await contestCollection.updateOne(query, {
+        const contestUpdate = await contestCollection.updateOne(query, {
           $inc: { participantsCount: 1 },
         });
 
-        // Save payment info
+        if (contestUpdate.modifiedCount === 0) {
+          return res.status(404).json({
+            success: false,
+            message: "Contest not found",
+          });
+        }
+
+        // 2. Save payment info
         const payment = {
-          contestId,
+          contestId: new ObjectId(contestId),
           contestName: session.metadata.paymentName,
           userUID: session.metadata.userUID,
           userEmail: session.metadata.userEmail,
@@ -321,18 +356,19 @@ const run = async () => {
           paidAt: new Date(),
           trackingId,
         };
+
         const paymentResult = await paymentCollection.insertOne(payment);
 
-        // Create participation if not exists
+        // 3. Create participation if not exists
         const alreadyParticipated = await participationCollection.findOne({
-          contestId,
+          contestId: new ObjectId(contestId),
           userUID: session.metadata.userUID,
         });
 
         let participationResult = null;
         if (!alreadyParticipated) {
           const participation = {
-            contestId,
+            contestId: new ObjectId(contestId),
             userUID: session.metadata.userUID,
             userEmail: session.metadata.userEmail,
             paymentStatus: session.payment_status,
@@ -344,18 +380,70 @@ const run = async () => {
           );
         }
 
-        //  Final response
-        res.send({
+        // Final response
+        res.json({
           success: true,
+          message: "Payment processed successfully",
           trackingId,
           transactionId,
-          paymentInfo: paymentResult,
-          participationInfo: participationResult,
+          isAlreadyProcessed: false,
+          paymentInfo: {
+            insertedId: paymentResult.insertedId,
+            contestId: contestId,
+            contestName: payment.contestName,
+          },
+          participationInfo: participationResult
+            ? {
+                insertedId: participationResult.insertedId,
+              }
+            : { message: "Already participated" },
         });
       } catch (error) {
         console.error("Payment success error:", error);
-        res.status(500).send({ success: false, error: true });
+
+        // Handle specific errors
+        if (error.type === "StripeInvalidRequestError") {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid session ID",
+          });
+        }
+
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+          error:
+            process.env.NODE_ENV === "development" ? error.message : undefined,
+        });
       }
+    });
+
+    //participation related api
+    app.get("/participation/:id", async (req, res) => {
+      const contestId = req.params.id;
+      const { userUID } = req.query;
+
+      if (!userUID) {
+        return res.send({ participated: false });
+      }
+
+      // participation collection check
+      const participation = await participationCollection.findOne({
+        contestId: contestId,
+        userUID: userUID,
+      });
+
+      // payment collection check
+      const payment = await paymentCollection.findOne({
+        contestId: contestId,
+        userUID: userUID,
+      });
+
+      if (participation && payment) {
+        return res.send({ participated: true });
+      }
+
+      res.send({ participated: false });
     });
 
     //sent a ping to confirm
