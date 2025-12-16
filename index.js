@@ -73,6 +73,7 @@ const run = async () => {
     const contestCollection = db.collection("contests");
     const paymentCollection = db.collection("payments");
     const participationCollection = db.collection("participation");
+    const submittedCollection = db.collection("submit_tasks");
 
     //users related api
     app.get("/users", async (req, res) => {
@@ -206,7 +207,8 @@ const run = async () => {
       res.send(result);
     });
 
-    app.patch("/contests/:id", async (req, res) => {
+    //admin use for update contest status
+    app.patch("/contests/admin/:id", async (req, res) => {
       const statusInfo = req.body;
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
@@ -218,6 +220,40 @@ const run = async () => {
       };
       console.log(updateDoc);
       const result = await contestCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
+    //creator update form
+    app.patch("/contests/:id", async (req, res) => {
+      const updateInfo = req.body;
+      const id = req.params.id;
+
+      //if user send any status then it will delete from here
+      delete updateInfo.status;
+
+      const query = { _id: new ObjectId(id), status: "Pending" };
+      const updateDoc = {
+        $set: {
+          ...updateInfo,
+        },
+      };
+
+      //array create and length check
+      if (Object.keys(updateInfo).length === 0) {
+        res
+          .status(400)
+          .send({ message: "No valid fields provided for update." });
+      }
+
+      const result = await contestCollection.updateOne(query, updateDoc);
+      console.log(result);
+
+      if (result.modifiedCount === 0 && result.matchedCount > 0) {
+        return res.status(403).send({
+          message:
+            "Update failed. The contest is no longer in 'Pending' status and cannot be modified.",
+        });
+      }
       res.send(result);
     });
 
@@ -344,7 +380,7 @@ const run = async () => {
 
         // 2. Save payment info
         const payment = {
-          contestId: new ObjectId(contestId),
+          contestId: contestId,
           contestName: session.metadata.paymentName,
           userUID: session.metadata.userUID,
           userEmail: session.metadata.userEmail,
@@ -361,14 +397,14 @@ const run = async () => {
 
         // 3. Create participation if not exists
         const alreadyParticipated = await participationCollection.findOne({
-          contestId: new ObjectId(contestId),
+          contestId: contestId,
           userUID: session.metadata.userUID,
         });
 
         let participationResult = null;
         if (!alreadyParticipated) {
           const participation = {
-            contestId: new ObjectId(contestId),
+            contestId: contestId,
             userUID: session.metadata.userUID,
             userEmail: session.metadata.userEmail,
             paymentStatus: session.payment_status,
@@ -381,7 +417,7 @@ const run = async () => {
         }
 
         // Final response
-        res.json({
+        res.send({
           success: true,
           message: "Payment processed successfully",
           trackingId,
@@ -403,13 +439,13 @@ const run = async () => {
 
         // Handle specific errors
         if (error.type === "StripeInvalidRequestError") {
-          return res.status(400).json({
+          return res.status(400).send({
             success: false,
             message: "Invalid session ID",
           });
         }
 
-        res.status(500).json({
+        res.status(500).send({
           success: false,
           message: "Internal server error",
           error:
@@ -421,6 +457,7 @@ const run = async () => {
     //participation related api
     app.get("/participation/:id", async (req, res) => {
       const contestId = req.params.id;
+      // console.log("contestId", contestId);
       const { userUID } = req.query;
 
       if (!userUID) {
@@ -433,17 +470,74 @@ const run = async () => {
         userUID: userUID,
       });
 
+      console.log(participation);
+
       // payment collection check
       const payment = await paymentCollection.findOne({
         contestId: contestId,
         userUID: userUID,
       });
 
+      console.log(payment);
+
       if (participation && payment) {
         return res.send({ participated: true });
       }
 
       res.send({ participated: false });
+    });
+
+    //submit related api
+    app.post("/submit-task", async (req, res) => {
+      const submitInfo = req.body;
+
+      const { contestId, userId } = submitInfo;
+
+      if (!contestId || !userId) {
+        return res.status(400).send({
+          success: false,
+          message: "contestId and userId are required",
+        });
+      }
+
+      //same user + same contest check
+      const existingSubmission = await submittedCollection.findOne({
+        contestId: contestId,
+        userId: userId,
+      });
+
+      if (existingSubmission) {
+        return res.status(400).send({
+          success: false,
+          message: "You have already submitted a task for this contest",
+        });
+      }
+
+      submitInfo.taskStatus = "Submitted";
+      submitInfo.submitAt = new Date();
+
+      const result = await submittedCollection.insertOne(submitInfo);
+
+      res.send({
+        success: true,
+        insertedId: result.insertedId,
+      });
+    });
+
+    app.get("/submit-task/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const query = { contestId: id };
+
+      const cursor = submittedCollection.find(query);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.get("/submit-task", async (req, res) => {
+      const cursor = submittedCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
     });
 
     //sent a ping to confirm
