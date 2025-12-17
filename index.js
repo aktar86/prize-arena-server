@@ -488,6 +488,21 @@ const run = async () => {
     });
 
     //submit related api
+
+    app.get("/submit-task", async (req, res) => {
+      const { contestId, userId } = req.query;
+
+      const submission = await submittedCollection.findOne({
+        contestId: contestId,
+        userId: userId,
+      });
+
+      if (submission) {
+        return res.send({ isSubmitted: true });
+      }
+      res.send({ isSubmitted: false });
+    });
+
     app.post("/submit-task", async (req, res) => {
       const submitInfo = req.body;
 
