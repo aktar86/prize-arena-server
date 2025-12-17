@@ -35,8 +35,6 @@ app.use(express.json()); //for converting stringify to object
 
 //verify fire base token
 const verifyFireBaseToken = async (req, res, next) => {
-  console.log("Headers aktar: ", req.headers);
-
   const token = req.headers.authorization;
   if (!token) {
     return res.status(401).send({ message: "unauthorized access" });
@@ -45,7 +43,6 @@ const verifyFireBaseToken = async (req, res, next) => {
   try {
     const idToken = token.split(" ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
-    console.log(decoded);
     req.decoded_email = decoded.email;
     next();
   } catch (err) {
@@ -76,6 +73,19 @@ const run = async () => {
     const participationCollection = db.collection("participation");
     const submittedCollection = db.collection("submit_tasks");
 
+    //middle more with database access
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      next();
+    };
+
     //users related api
     app.get("/users", async (req, res) => {
       const cursor = usersCollection.find();
@@ -83,30 +93,38 @@ const run = async () => {
       res.send(result);
     });
 
+    app.get("/users/:id/role", async (req, res) => {});
+
     //for useRole hook api
-    app.get("/users/:email/role", async (req, res) => {
+    app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
       const query = { email };
       const user = await usersCollection.findOne(query);
-      // res.send(result); //need to understand here
+      res.send({ role: user?.role || "user" });
     });
 
-    app.patch("/users/:id/role", async (req, res) => {
-      const id = req.params.id;
-      const roleInfo = req.body;
-      const query = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: {
-          role: roleInfo.role,
-        },
-      };
+    app.patch(
+      "/users/:id/role",
+      verifyFireBaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const roleInfo = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updateDoc = {
+          $set: {
+            role: roleInfo.role,
+          },
+        };
 
-      const result = await usersCollection.updateOne(query, updateDoc);
-      res.send(result);
-    });
+        const result = await usersCollection.updateOne(query, updateDoc);
+        res.send(result);
+      }
+    );
 
     app.post("/users", async (req, res) => {
       const user = req.body;
+      const email = user.email;
       user.role = "user";
       user.createAt = new Date();
 
