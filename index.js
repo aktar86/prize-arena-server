@@ -46,10 +46,11 @@ const verifyFireBaseToken = async (req, res, next) => {
     const idToken = token.split(" ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
     console.log(decoded);
-  } catch {
+    req.decoded_email = decoded.email;
+    next();
+  } catch (err) {
     return res.status(401).send({ message: "unauthorized access" });
   }
-  next();
 };
 
 const uri = process.env.PA_MONGO_URI;
@@ -108,6 +109,12 @@ const run = async () => {
       const user = req.body;
       user.role = "user";
       user.createAt = new Date();
+
+      // user exist
+      const userExist = await usersCollection.findOne({ email });
+      if (userExist) {
+        return res.send({ message: "user exists" });
+      }
 
       const result = await usersCollection.insertOne(user);
       res.send(result);
@@ -174,13 +181,18 @@ const run = async () => {
     });
 
     // contest related api
-    app.get("/contests", async (req, res) => {
+    app.get("/contests", verifyFireBaseToken, async (req, res) => {
       const { email, status } = req.query;
 
       let query = {};
       //my contest query
       if (email) {
         query.creatorEmail = email;
+
+        // check again with decoded email
+        if (email !== req.decoded_email) {
+          res.status(403).send({ message: "forbidden access" });
+        }
       }
 
       //all contest page confirmed query
