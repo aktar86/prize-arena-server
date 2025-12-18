@@ -215,7 +215,12 @@ const run = async () => {
 
       //all contest page confirmed query
       if (status) {
-        query.status = status;
+        if (status === "Confirmed") {
+          // শুধু Confirmed এবং Closed ডাটা আসবে, Pending আসবে না
+          query.status = { $in: ["Confirmed", "Closed"] };
+        } else {
+          query.status = status;
+        }
       }
 
       const cursor = contestCollection
@@ -287,6 +292,28 @@ const run = async () => {
       res.send(result);
     });
 
+    //contest winner api hit by creator
+    app.patch("/contest/declare-winner/:id", async (req, res) => {
+      const { name, email, photoUrl, userUid } = req.body;
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          winner: {
+            name,
+            email,
+            photoUrl,
+            userUid,
+            declaredAt: new Date(),
+          },
+          status: "Closed",
+        },
+      };
+
+      const result = await contestCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
     app.delete("/contests/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
@@ -301,7 +328,8 @@ const run = async () => {
       contest.participantsCount = 0;
       contest.winner = {
         name: null,
-        userId: null,
+        email: null,
+        photoUrl: null,
         declaredAt: null,
       };
 
@@ -342,7 +370,6 @@ const run = async () => {
       res.send({ url: session.url });
     });
 
-    //polished by deepseek
     app.patch("/payment-success", async (req, res) => {
       try {
         const sessionId = req.query.session_id;
@@ -581,6 +608,17 @@ const run = async () => {
 
     app.get("/submit-task", async (req, res) => {
       const cursor = submittedCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    //recent winner related api
+    app.get("/recent-winner", async (req, res) => {
+      // $ne: null (not equal). we dont need closed contest without declare winner
+      const query = { status: "Closed", "winner.name": { $ne: null } };
+      const cursor = contestCollection
+        .find(query)
+        .sort({ "winner.declaredAt": -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
