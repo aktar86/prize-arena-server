@@ -103,6 +103,7 @@ const run = async () => {
       res.send({ role: user?.role || "user" });
     });
 
+    //verify also admin
     app.patch(
       "/users/:id/role",
       verifyFireBaseToken,
@@ -145,41 +146,51 @@ const run = async () => {
       res.send(result);
     });
 
-    app.patch("/creators/:id", async (req, res) => {
-      const status = req.body.status;
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: {
-          status: status,
-        },
-      };
-
-      const result = await creatorsCollection.updateOne(query, updateDoc);
-
-      if (status === "approved") {
-        const email = req.body.email;
-        const userQuery = { email };
-        const updateUser = {
+    app.patch(
+      "/creators/:id",
+      verifyFireBaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const status = req.body.status;
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const updateDoc = {
           $set: {
-            role: "creator",
+            status: status,
           },
         };
 
-        const result = await usersCollection.updateOne(userQuery, updateUser);
-        console.log("update user:", result);
-        // res.send(result);
+        const result = await creatorsCollection.updateOne(query, updateDoc);
+
+        if (status === "approved") {
+          const email = req.body.email;
+          const userQuery = { email };
+          const updateUser = {
+            $set: {
+              role: "creator",
+            },
+          };
+
+          const result = await usersCollection.updateOne(userQuery, updateUser);
+          console.log("update user:", result);
+          // res.send(result);
+        }
+
+        res.send(result);
       }
+    );
 
-      res.send(result);
-    });
-
-    app.delete("/creators/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await creatorsCollection.deleteOne(query);
-      res.send(result);
-    });
+    app.delete(
+      "/creators/:id",
+      verifyFireBaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await creatorsCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
 
     app.post("/creators", async (req, res) => {
       const creator = req.body;
@@ -197,30 +208,37 @@ const run = async () => {
       const result = await creatorsCollection.insertOne(creator);
       res.send(result);
     });
-
+    //-----------------------------------------------------------------------------------------
     // contest related api
     app.get("/contests", verifyFireBaseToken, async (req, res) => {
-      const { email, status } = req.query;
+      const { email, status, searchText } = req.query;
 
       let query = {};
       //my contest query
       if (email) {
         query.creatorEmail = email;
-
+        console.log(email);
         // check again with decoded email
         if (email !== req.decoded_email) {
-          res.status(403).send({ message: "forbidden access" });
+          return res.status(403).send({ message: "forbidden access" });
         }
       }
 
       //all contest page confirmed query
       if (status) {
         if (status === "Confirmed") {
-          // শুধু Confirmed এবং Closed ডাটা আসবে, Pending আসবে না
           query.status = { $in: ["Confirmed", "Closed"] };
         } else {
           query.status = status;
         }
+      }
+
+      // search bar logic fix
+      if (searchText) {
+        query.$or = [
+          { contestTitle: { $regex: searchText, $options: "i" } },
+          { contestCategory: { $regex: searchText, $options: "i" } },
+        ];
       }
 
       const cursor = contestCollection
@@ -230,7 +248,19 @@ const run = async () => {
       res.send(result);
     });
 
-    app.get("/contests/:id", async (req, res) => {
+    //for popular contest
+    app.get("/contests/popular-contests", async (req, res) => {
+      const cursor = contestCollection
+        .find()
+        .sort({ participantsCount: -1 })
+        .limit(6);
+
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    //contest card details page api
+    app.get("/contests/:id", verifyFireBaseToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await contestCollection.findOne(query);
@@ -243,23 +273,28 @@ const run = async () => {
     });
 
     //admin use for update contest status
-    app.patch("/contests/admin/:id", async (req, res) => {
-      const statusInfo = req.body;
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
+    app.patch(
+      "/contests/admin/:id",
+      verifyFireBaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const statusInfo = req.body;
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
 
-      const updateDoc = {
-        $set: {
-          status: statusInfo.status,
-        },
-      };
-      console.log(updateDoc);
-      const result = await contestCollection.updateOne(query, updateDoc);
-      res.send(result);
-    });
+        const updateDoc = {
+          $set: {
+            status: statusInfo.status,
+          },
+        };
+        console.log(updateDoc);
+        const result = await contestCollection.updateOne(query, updateDoc);
+        res.send(result);
+      }
+    );
 
     //creator update form
-    app.patch("/contests/:id", async (req, res) => {
+    app.patch("/contests/:id", verifyFireBaseToken, async (req, res) => {
       const updateInfo = req.body;
       const id = req.params.id;
 
@@ -293,35 +328,40 @@ const run = async () => {
     });
 
     //contest winner api hit by creator
-    app.patch("/contest/declare-winner/:id", async (req, res) => {
-      const { name, email, photoUrl, userUid } = req.body;
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: {
-          winner: {
-            name,
-            email,
-            photoUrl,
-            userUid,
-            declaredAt: new Date(),
+    app.patch(
+      "/contest/declare-winner/:id",
+
+      async (req, res) => {
+        const { name, email, photoUrl, userUid } = req.body;
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const updateDoc = {
+          $set: {
+            winner: {
+              name,
+              email,
+              photoUrl,
+              userUid,
+              declaredAt: new Date(),
+            },
+            status: "Closed",
           },
-          status: "Closed",
-        },
-      };
+        };
 
-      const result = await contestCollection.updateOne(query, updateDoc);
-      res.send(result);
-    });
+        const result = await contestCollection.updateOne(query, updateDoc);
+        res.send(result);
+      }
+    );
 
-    app.delete("/contests/:id", async (req, res) => {
+    //admin crator both will hit for delete contest
+    app.delete("/contests/:id", verifyFireBaseToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await contestCollection.deleteOne(query);
       res.send(result);
     });
 
-    app.post("/contests", async (req, res) => {
+    app.post("/contests", verifyFireBaseToken, async (req, res) => {
       const contest = req.body;
       contest.status = "Pending";
       contest.createAt = new Date();
@@ -337,40 +377,46 @@ const run = async () => {
       res.send(result);
     });
 
+    //---------------------------------------------------------------------------------------
+
     //payment related api
-    app.post("/create-checkout-session", async (req, res) => {
-      const paymentInfo = req.body;
-      const amount = parseInt(paymentInfo.cost) * 100;
-      const session = await stripe.checkout.sessions.create({
-        line_items: [
-          {
-            price_data: {
-              currency: "USD",
-              unit_amount: amount,
-              product_data: {
-                name: `Please pay for: ${paymentInfo.title}`,
+    app.post(
+      "/create-checkout-session",
+      verifyFireBaseToken,
+      async (req, res) => {
+        const paymentInfo = req.body;
+        const amount = parseInt(paymentInfo.cost) * 100;
+        const session = await stripe.checkout.sessions.create({
+          line_items: [
+            {
+              price_data: {
+                currency: "USD",
+                unit_amount: amount,
+                product_data: {
+                  name: `Please pay for: ${paymentInfo.title}`,
+                },
               },
+              quantity: 1,
             },
-            quantity: 1,
+          ],
+          mode: "payment",
+          customer_email: paymentInfo.email,
+          metadata: {
+            paymentId: paymentInfo.contestId,
+            paymentName: paymentInfo.title,
+            userUID: paymentInfo.userUID,
+            userEmail: paymentInfo.email,
+            upcomingDeadline: paymentInfo.deadline,
           },
-        ],
-        mode: "payment",
-        customer_email: paymentInfo.email,
-        metadata: {
-          paymentId: paymentInfo.contestId,
-          paymentName: paymentInfo.title,
-          userUID: paymentInfo.userUID,
-          userEmail: paymentInfo.email,
-          upcomingDeadline: paymentInfo.deadline,
-        },
-        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancel`,
-      });
+          success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancel`,
+        });
 
-      res.send({ url: session.url });
-    });
+        res.send({ url: session.url });
+      }
+    );
 
-    app.patch("/payment-success", async (req, res) => {
+    app.patch("/payment-success", verifyFireBaseToken, async (req, res) => {
       try {
         const sessionId = req.query.session_id;
 
@@ -511,6 +557,8 @@ const run = async () => {
       }
     });
 
+    //-----------------------------------------------------------------------------------------------------------------
+
     //participation related api
     app.get("/participation/:id", async (req, res) => {
       const contestId = req.params.id;
@@ -544,9 +592,10 @@ const run = async () => {
       res.send({ participated: false });
     });
 
-    //submit related api
+    //-----------------------------------------------------------------------------------------------------------------
 
-    app.get("/submit-task", async (req, res) => {
+    //submit related api
+    app.get("/submit-task", verifyFireBaseToken, async (req, res) => {
       const { contestId, userId } = req.query;
 
       const submission = await submittedCollection.findOne({
@@ -560,7 +609,7 @@ const run = async () => {
       res.send({ isSubmitted: false });
     });
 
-    app.post("/submit-task", async (req, res) => {
+    app.post("/submit-task", verifyFireBaseToken, async (req, res) => {
       const submitInfo = req.body;
 
       const { contestId, userId } = submitInfo;
@@ -596,7 +645,7 @@ const run = async () => {
       });
     });
 
-    app.get("/submit-task/:id", async (req, res) => {
+    app.get("/submit-task/:id", verifyFireBaseToken, async (req, res) => {
       const id = req.params.id;
 
       const query = { contestId: id };
