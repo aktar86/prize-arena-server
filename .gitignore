@@ -3,3 +3,4 @@ node_modules
 prize-arena-firebase-adminsdk.json
 test.js 
 .vercel
+.env*.local
