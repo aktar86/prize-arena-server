@@ -93,8 +93,6 @@ const run = async () => {
       res.send(result);
     });
 
-    app.get("/users/:id/role", async (req, res) => {});
-
     //for useRole hook api
     app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
@@ -110,11 +108,17 @@ const run = async () => {
       verifyAdmin,
       async (req, res) => {
         const id = req.params.id;
-        const roleInfo = req.body;
+        const { role } = req.body;
+
+        // validation
+        if (!role) {
+          return res.status(400).send({ message: "Role is required" });
+        }
+
         const query = { _id: new ObjectId(id) };
         const updateDoc = {
           $set: {
-            role: roleInfo.role,
+            role: role,
           },
         };
 
@@ -140,7 +144,7 @@ const run = async () => {
     });
 
     //creator related api
-    app.get("/creators", verifyFireBaseToken, async (req, res) => {
+    app.get("/creators", verifyFireBaseToken, verifyAdmin, async (req, res) => {
       const cursor = creatorsCollection.find().sort({ createAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
@@ -171,8 +175,11 @@ const run = async () => {
             },
           };
 
-          const result = await usersCollection.updateOne(userQuery, updateUser);
-          console.log("update user:", result);
+          const userUpdateResult = await usersCollection.updateOne(
+            userQuery,
+            updateUser
+          );
+          console.log("update user:", userUpdateResult);
           // res.send(result);
         }
 
@@ -188,32 +195,47 @@ const run = async () => {
         const id = req.params.id;
         const query = { _id: new ObjectId(id) };
         const result = await creatorsCollection.deleteOne(query);
+
+        // 2. Data delete hoyeche kina check kora
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: "Creator not found" });
+        }
+
         res.send(result);
       }
     );
 
-    app.post("/creators", async (req, res) => {
+    app.post("/creators", verifyFireBaseToken, async (req, res) => {
       const creator = req.body;
-      creator.status = "pending";
-      creator.createAt = new Date();
+
       const email = creator.creatorEmail;
+
+      // Email Validation by token
+      if (!email) {
+        return res.status(400).send({ message: "Creator Email is required" });
+      }
 
       const existingCreator = await creatorsCollection.findOne({
         creatorEmail: email,
       });
+
       if (existingCreator) {
         return res.status(404).send({ message: "creator exists" });
       }
 
+      creator.status = "pending";
+      creator.createAt = new Date();
+
       const result = await creatorsCollection.insertOne(creator);
-      res.send(result);
+      res.status(201).send(result);
     });
-    //-----------------------------------------------------------------------------------------
+    //---------------------------------------------------------------
     // contest related api
     app.get("/contests", verifyFireBaseToken, async (req, res) => {
       const { email, status, searchText } = req.query;
 
       let query = {};
+
       //my contest query
       if (email) {
         query.creatorEmail = email;
@@ -300,8 +322,13 @@ const run = async () => {
 
       //if user send any status then it will delete from here
       delete updateInfo.status;
+      delete updateInfo._id;
 
-      const query = { _id: new ObjectId(id), status: "Pending" };
+      const query = {
+        _id: new ObjectId(id),
+        status: "Pending",
+        creatorEmail: req.decoded_email,
+      };
       const updateDoc = {
         $set: {
           ...updateInfo,
@@ -310,13 +337,12 @@ const run = async () => {
 
       //array create and length check
       if (Object.keys(updateInfo).length === 0) {
-        res
+        return res
           .status(400)
           .send({ message: "No valid fields provided for update." });
       }
 
       const result = await contestCollection.updateOne(query, updateDoc);
-      console.log(result);
 
       if (result.modifiedCount === 0 && result.matchedCount > 0) {
         return res.status(403).send({
@@ -334,7 +360,11 @@ const run = async () => {
       async (req, res) => {
         const { name, email, photoUrl, userUid } = req.body;
         const id = req.params.id;
-        const query = { _id: new ObjectId(id) };
+        const query = {
+          _id: new ObjectId(id),
+          creatorEmail: req.decoded_email,
+          status: { $ne: "Closed" },
+        };
         const updateDoc = {
           $set: {
             winner: {
@@ -349,6 +379,13 @@ const run = async () => {
         };
 
         const result = await contestCollection.updateOne(query, updateDoc);
+
+        if (result.matchedCount === 0) {
+          return res.status(403).send({
+            message:
+              "Action forbidden. Either you are not the creator or winner already declared.",
+          });
+        }
         res.send(result);
       }
     );
@@ -356,13 +393,32 @@ const run = async () => {
     //admin crator both will hit for delete contest
     app.delete("/contests/:id", verifyFireBaseToken, async (req, res) => {
       const id = req.params.id;
+      const userEmail = req.decoded_email;
+
+      const user = await usersCollection.findOne({ email: userEmail });
+      const isAdmin = user?.role === "admin";
+
       const query = { _id: new ObjectId(id) };
+
+      if (!isAdmin) {
+        query.creatorEmail = userEmail;
+      }
+
       const result = await contestCollection.deleteOne(query);
+
+      if (result.deletedCount === 0) {
+        return res.status(403).send({
+          message: "Access forbidden or contest not found.",
+        });
+      }
       res.send(result);
     });
 
     app.post("/contests", verifyFireBaseToken, async (req, res) => {
       const contest = req.body;
+
+      contest.creatorEmail = req.decoded_email;
+
       contest.status = "Pending";
       contest.createAt = new Date();
       contest.participantsCount = 0;
@@ -374,7 +430,7 @@ const run = async () => {
       };
 
       const result = await contestCollection.insertOne(contest);
-      res.send(result);
+      res.status(201).send(result);
     });
 
     //---------------------------------------------------------------------------------------
@@ -385,7 +441,14 @@ const run = async () => {
       verifyFireBaseToken,
       async (req, res) => {
         const paymentInfo = req.body;
-        const amount = parseInt(paymentInfo.cost) * 100;
+        const userEmail = req.decoded_email;
+
+        const amount = Math.round(parseFloat(paymentInfo.cost) * 100);
+
+        if (isNaN(amount) || amount <= 0) {
+          return res.status(400).send({ message: "Invalid payment amount" });
+        }
+
         const session = await stripe.checkout.sessions.create({
           line_items: [
             {
@@ -394,18 +457,19 @@ const run = async () => {
                 unit_amount: amount,
                 product_data: {
                   name: `Please pay for: ${paymentInfo.title}`,
+                  description: "Contest entry fee",
                 },
               },
               quantity: 1,
             },
           ],
           mode: "payment",
-          customer_email: paymentInfo.email,
+          customer_email: userEmail,
           metadata: {
             paymentId: paymentInfo.contestId,
             paymentName: paymentInfo.title,
             userUID: paymentInfo.userUID,
-            userEmail: paymentInfo.email,
+            userEmail: userEmail,
             upcomingDeadline: paymentInfo.deadline,
           },
           success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
@@ -415,7 +479,7 @@ const run = async () => {
         res.send({ url: session.url });
       }
     );
-
+    /*
     app.patch("/payment-success", verifyFireBaseToken, async (req, res) => {
       try {
         const sessionId = req.query.session_id;
@@ -456,8 +520,8 @@ const run = async () => {
           });
         }
 
-        const trackingId = generateTrackingId();
         const contestId = session.metadata.paymentId;
+        const trackingId = generateTrackingId();
 
         // Validate contestId
         if (!contestId) {
@@ -509,6 +573,7 @@ const run = async () => {
           const participation = {
             contestId: contestId,
             userUID: session.metadata.userUID,
+            contestName: session.metadata.paymentName,
             userEmail: session.metadata.userEmail,
             paymentStatus: session.payment_status,
             registeredAt: new Date(),
@@ -556,43 +621,137 @@ const run = async () => {
         });
       }
     });
+*/
 
-    //-----------------------------------------------------------------------------------------------------------------
+    app.patch("/payment-success", verifyFireBaseToken, async (req, res) => {
+      try {
+        const sessionId = req.query.session_id;
 
-    //participation related api
-    app.get("/participation/:id", async (req, res) => {
-      const contestId = req.params.id;
-      // console.log("contestId", contestId);
-      const { userUID } = req.query;
+        // 1. Session ID check
+        if (!sessionId) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Session ID is required" });
+        }
 
-      if (!userUID) {
-        return res.send({ participated: false });
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+        // 🔴 SECURITY VALIDATION: Token theke pawa email ar session-er email match kora dorkar
+        if (session.metadata.userEmail !== req.decoded_email) {
+          return res
+            .status(403)
+            .json({ success: false, message: "Unauthorized: Access Denied" });
+        }
+
+        // 2. Payment Status check
+        if (session.payment_status !== "paid") {
+          return res
+            .status(400)
+            .json({ success: false, message: "Payment not completed" });
+        }
+
+        const transactionId = session.payment_intent;
+
+        // 3. Double Payment Check (Double entry bondho korte)
+        const existingPayment = await paymentCollection.findOne({
+          transactionId,
+        });
+        if (existingPayment) {
+          return res.json({
+            success: true,
+            message: "Payment already processed",
+            trackingId: existingPayment.trackingId,
+            transactionId,
+            isAlreadyProcessed: true,
+          });
+        }
+
+        const contestId = session.metadata.paymentId;
+        const trackingId = generateTrackingId();
+
+        // 4. Contest ID validation
+        if (!contestId) {
+          return res.status(400).json({
+            success: false,
+            message: "Contest ID not found in metadata",
+          });
+        }
+
+        const query = { _id: new ObjectId(contestId) };
+
+        // 🟢 5. Increment participant count
+        const contestUpdate = await contestCollection.updateOne(query, {
+          $inc: { participantsCount: 1 },
+        });
+
+        if (contestUpdate.modifiedCount === 0) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Contest not found to update" });
+        }
+
+        // 🟢 6. Save payment info
+        const payment = {
+          contestId: contestId,
+          contestName: session.metadata.paymentName,
+          userUID: session.metadata.userUID,
+          userEmail: session.metadata.userEmail,
+          amount: session.amount_total / 100,
+          currency: session.currency,
+          transactionId: transactionId,
+          paymentStatus: session.payment_status,
+          upcomingDeadline: session.metadata.upcomingDeadline,
+          paidAt: new Date(),
+          trackingId,
+        };
+
+        const paymentResult = await paymentCollection.insertOne(payment);
+
+        // 🟢 7. Create participation if not exists (APNAR ORIGINAL LOGIC)
+        const alreadyParticipated = await participationCollection.findOne({
+          contestId: contestId,
+          userUID: session.metadata.userUID,
+        });
+
+        let participationResult = null;
+        if (!alreadyParticipated) {
+          const participation = {
+            contestId: contestId,
+            userUID: session.metadata.userUID,
+            contestName: session.metadata.paymentName,
+            userEmail: session.metadata.userEmail,
+            paymentStatus: session.payment_status,
+            registeredAt: new Date(),
+            hasSubmitted: false,
+          };
+          participationResult = await participationCollection.insertOne(
+            participation
+          );
+        }
+
+        // Final response
+        res.send({
+          success: true,
+          message: "Payment processed successfully",
+          trackingId,
+          transactionId,
+          isAlreadyProcessed: false,
+          paymentResult,
+          participationResult: participationResult
+            ? "New participant added"
+            : "Already in list",
+        });
+      } catch (error) {
+        console.error("Payment success error:", error);
+        res.status(500).send({
+          success: false,
+          message: "Internal server error",
+          error:
+            process.env.NODE_ENV === "development" ? error.message : undefined,
+        });
       }
-
-      // participation collection check
-      const participation = await participationCollection.findOne({
-        contestId: contestId,
-        userUID: userUID,
-      });
-
-      console.log(participation);
-
-      // payment collection check
-      const payment = await paymentCollection.findOne({
-        contestId: contestId,
-        userUID: userUID,
-      });
-
-      console.log(payment);
-
-      if (participation && payment) {
-        return res.send({ participated: true });
-      }
-
-      res.send({ participated: false });
     });
-
-    //-----------------------------------------------------------------------------------------------------------------
+    //-------------------------------------------------------
 
     //submit related api
     app.get("/submit-task", verifyFireBaseToken, async (req, res) => {
@@ -668,6 +827,55 @@ const run = async () => {
       const cursor = contestCollection
         .find(query)
         .sort({ "winner.declaredAt": -1 });
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    //participation related api
+    app.get("/participation/:id", verifyFireBaseToken, async (req, res) => {
+      const contestId = req.params.id;
+      const { userUID } = req.query;
+
+      if (!userUID) {
+        return res.send({ participated: false });
+      }
+
+      // participation collection check
+      const participation = await participationCollection.findOne({
+        contestId: contestId,
+        userUID: userUID,
+      });
+
+      console.log(participation);
+
+      // payment collection check
+      const payment = await paymentCollection.findOne({
+        contestId: contestId,
+        userUID: userUID,
+      });
+
+      console.log(payment);
+
+      if (participation && payment) {
+        return res.send({ participated: true });
+      }
+
+      res.send({ participated: false });
+    });
+
+    app.get("/participation", verifyFireBaseToken, async (req, res) => {
+      const email = req.query.email;
+
+      if (email !== req.decoded_email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      const query = {};
+      if (email) {
+        query.userEmail = email;
+      }
+      const cursor = participationCollection
+        .find(query)
+        .sort({ registeredAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
