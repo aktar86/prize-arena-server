@@ -246,9 +246,9 @@ const run = async () => {
         query.creatorEmail = email;
         console.log(email);
         // check again with decoded email
-        // if (email !== req.decoded_email) {
-        //   return res.status(403).send({ message: "forbidden access" });
-        // }
+        if (email !== req.decoded_email) {
+          return res.status(403).send({ message: "forbidden access" });
+        }
       }
 
       //all contest page confirmed query
@@ -287,7 +287,7 @@ const run = async () => {
     });
 
     //contest card details page api
-    app.get("/contests/:id", verifyFireBaseToken, async (req, res) => {
+    app.get("/contests/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await contestCollection.findOne(query);
@@ -425,7 +425,7 @@ const run = async () => {
       res.send(result);
     });
 
-    app.post("/contests", verifyFireBaseToken, async (req, res) => {
+    app.post("/contests", async (req, res) => {
       const contest = req.body;
 
       contest.creatorEmail = req.decoded_email;
@@ -647,7 +647,7 @@ const run = async () => {
 
         const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-        // 🔴 SECURITY VALIDATION: Token theke pawa email ar session-er email match kora dorkar
+        // SECURITY VALIDATION: Token theke pawa email ar session-er email match kora dorkar
         if (session.metadata.userEmail !== req.decoded_email) {
           return res
             .status(403)
@@ -690,7 +690,7 @@ const run = async () => {
 
         const query = { _id: new ObjectId(contestId) };
 
-        // 🟢 5. Increment participant count
+        //  5. Increment participant count
         const contestUpdate = await contestCollection.updateOne(query, {
           $inc: { participantsCount: 1 },
         });
@@ -701,7 +701,7 @@ const run = async () => {
             .json({ success: false, message: "Contest not found to update" });
         }
 
-        // 🟢 6. Save payment info
+        // 6. Save payment info
         const payment = {
           contestId: contestId,
           contestName: session.metadata.paymentName,
@@ -718,7 +718,7 @@ const run = async () => {
 
         const paymentResult = await paymentCollection.insertOne(payment);
 
-        // 🟢 7. Create participation if not exists (APNAR ORIGINAL LOGIC)
+        //  7. Create participation if not exists (APNAR ORIGINAL LOGIC)
         const alreadyParticipated = await participationCollection.findOne({
           contestId: contestId,
           userUID: session.metadata.userUID,
@@ -922,3 +922,5 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
+
+// rubeel@rafaan.com
