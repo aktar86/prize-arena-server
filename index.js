@@ -135,6 +135,7 @@ const run = async () => {
       const user = req.body;
       const email = user.email;
       user.role = "user";
+      user.wins = 0;
       user.createAt = new Date();
 
       // user exist
@@ -237,7 +238,7 @@ const run = async () => {
     // contest related api
     app.get("/contests", async (req, res) => {
       const { email, status, searchText } = req.query;
-      console.log("Query Object:", email);
+
       let query = {};
 
       //my contest query
@@ -245,7 +246,6 @@ const run = async () => {
         query.creatorEmail = email;
         console.log(email);
         // check again with decoded email
-
         // if (email !== req.decoded_email) {
         //   return res.status(403).send({ message: "forbidden access" });
         // }
@@ -272,7 +272,6 @@ const run = async () => {
         .find(query)
         .sort({ participantsCount: -1 });
       const result = await cursor.toArray();
-
       res.send(result);
     });
 
@@ -362,7 +361,7 @@ const run = async () => {
     //contest winner api hit by creator
     app.patch(
       "/contest/declare-winner/:id",
-
+      verifyFireBaseToken,
       async (req, res) => {
         const { name, email, photoUrl, userUid } = req.body;
         const id = req.params.id;
@@ -384,15 +383,21 @@ const run = async () => {
           },
         };
 
-        const result = await contestCollection.updateOne(query, updateDoc);
+        const contestResult = await contestCollection.updateOne(
+          query,
+          updateDoc
+        );
 
-        if (result.matchedCount === 0) {
-          return res.status(403).send({
-            message:
-              "Action forbidden. Either you are not the creator or winner already declared.",
-          });
+        if (contestResult.matchedCount > 0) {
+          const query = { email: email };
+          const userUpdate = {
+            $inc: {
+              wins: 1,
+            },
+          };
+          await usersCollection.updateOne(query, userUpdate);
         }
-        res.send(result);
+        res.send(contestResult);
       }
     );
 
@@ -420,7 +425,7 @@ const run = async () => {
       res.send(result);
     });
 
-    app.post("/contests", verifyFireBaseToken, async (req, res) => {
+    app.post("/contests", async (req, res) => {
       const contest = req.body;
 
       contest.creatorEmail = req.decoded_email;
@@ -439,47 +444,9 @@ const run = async () => {
       res.status(201).send(result);
     });
 
-    // app.post("/contests", verifyFireBaseToken, async (req, res) => {
-    //   try {
-    //     const contest = req.body;
-
-    //     // APNAR MIDDLEWARE ANUJAYI: req.decoded_email use korte hobe
-    //     const creatorEmail = req.decoded_email;
-
-    //     if (!creatorEmail) {
-    //       return res
-    //         .status(401)
-    //         .send({ message: "Unauthenticated: No email found in token" });
-    //     }
-
-    //     const newContest = {
-    //       ...contest,
-    //       creatorEmail: creatorEmail, // Ekhon thikmoto email jabe
-    //       status: "Pending",
-    //       createdAt: new Date(),
-    //       participantsCount: 0,
-    //       winner: {
-    //         name: null,
-    //         email: null,
-    //         photoUrl: null,
-    //         declaredAt: null,
-    //       },
-    //     };
-
-    //     const result = await contestCollection.insertOne(newContest);
-    //     res.status(201).send(result);
-    //   } catch (error) {
-    //     console.error("Error saving contest:", error);
-    //     res.status(500).send({ message: "Internal Server Error" });
-    //   }
-    // });
-
     //---------------------------------------------------------------------------------------
 
     //payment related api
-
-    // 1. VerifyToken middleware oboshoy add korte hobe route-e
-
     app.post(
       "/create-checkout-session",
       verifyFireBaseToken,
@@ -921,6 +888,34 @@ const run = async () => {
         .find(query)
         .sort({ registeredAt: -1 });
       const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    //leaderboard user api
+    app.get("/leaderboard", async (req, res) => {
+      const role = req.query.role;
+      const query = {};
+      if (role) {
+        query.role = role;
+      }
+
+      const cursor = usersCollection.find(query).sort({ wins: -1 });
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    //update profile
+    app.get("/update-profile", async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        return res.status(400).send({ message: "Email is required" });
+      }
+
+      const query = { email: email };
+
+      const result = await usersCollection.findOne(query);
+
       res.send(result);
     });
 
