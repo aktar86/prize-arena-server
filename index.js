@@ -425,7 +425,7 @@ const run = async () => {
       res.send(result);
     });
 
-    app.post("/contests", async (req, res) => {
+    app.post("/contests", verifyFireBaseToken, async (req, res) => {
       const contest = req.body;
 
       contest.creatorEmail = req.decoded_email;
@@ -915,6 +915,36 @@ const run = async () => {
       const query = { email: email };
 
       const result = await usersCollection.findOne(query);
+
+      res.send(result);
+    });
+
+    // update profile api
+    app.patch("/update-profile", async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        res.status(400).send({ message: "Email is required" });
+      }
+
+      const query = {};
+      if (email) {
+        query.email = email;
+      }
+      const userInfo = req.body;
+      const updateDoc = {
+        $set: {
+          displayName: userInfo.displayName,
+          address: userInfo.address,
+          photoURL: userInfo.photoURL,
+        },
+      };
+
+      const result = await usersCollection.updateOne(query, updateDoc);
+
+      if (result.matchedCount === 0) {
+        return res.status(404).send({ message: "User not found in database" });
+      }
 
       res.send(result);
     });
