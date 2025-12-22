@@ -237,7 +237,7 @@ const run = async () => {
     // contest related api
     app.get("/contests", async (req, res) => {
       const { email, status, searchText } = req.query;
-
+      console.log("Query Object:", email);
       let query = {};
 
       //my contest query
@@ -272,6 +272,7 @@ const run = async () => {
         .find(query)
         .sort({ participantsCount: -1 });
       const result = await cursor.toArray();
+
       res.send(result);
     });
 
@@ -419,7 +420,7 @@ const run = async () => {
       res.send(result);
     });
 
-    app.post("/contests", async (req, res) => {
+    app.post("/contests", verifyFireBaseToken, async (req, res) => {
       const contest = req.body;
 
       contest.creatorEmail = req.decoded_email;
@@ -438,9 +439,47 @@ const run = async () => {
       res.status(201).send(result);
     });
 
+    // app.post("/contests", verifyFireBaseToken, async (req, res) => {
+    //   try {
+    //     const contest = req.body;
+
+    //     // APNAR MIDDLEWARE ANUJAYI: req.decoded_email use korte hobe
+    //     const creatorEmail = req.decoded_email;
+
+    //     if (!creatorEmail) {
+    //       return res
+    //         .status(401)
+    //         .send({ message: "Unauthenticated: No email found in token" });
+    //     }
+
+    //     const newContest = {
+    //       ...contest,
+    //       creatorEmail: creatorEmail, // Ekhon thikmoto email jabe
+    //       status: "Pending",
+    //       createdAt: new Date(),
+    //       participantsCount: 0,
+    //       winner: {
+    //         name: null,
+    //         email: null,
+    //         photoUrl: null,
+    //         declaredAt: null,
+    //       },
+    //     };
+
+    //     const result = await contestCollection.insertOne(newContest);
+    //     res.status(201).send(result);
+    //   } catch (error) {
+    //     console.error("Error saving contest:", error);
+    //     res.status(500).send({ message: "Internal Server Error" });
+    //   }
+    // });
+
     //---------------------------------------------------------------------------------------
 
     //payment related api
+
+    // 1. VerifyToken middleware oboshoy add korte hobe route-e
+
     app.post(
       "/create-checkout-session",
       verifyFireBaseToken,
