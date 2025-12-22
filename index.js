@@ -135,6 +135,7 @@ const run = async () => {
       const user = req.body;
       const email = user.email;
       user.role = "user";
+      user.wins = 0;
       user.createAt = new Date();
 
       // user exist
@@ -245,9 +246,9 @@ const run = async () => {
         query.creatorEmail = email;
         console.log(email);
         // check again with decoded email
-        if (email !== req.decoded_email) {
-          return res.status(403).send({ message: "forbidden access" });
-        }
+        // if (email !== req.decoded_email) {
+        //   return res.status(403).send({ message: "forbidden access" });
+        // }
       }
 
       //all contest page confirmed query
@@ -360,7 +361,7 @@ const run = async () => {
     //contest winner api hit by creator
     app.patch(
       "/contest/declare-winner/:id",
-
+      verifyFireBaseToken,
       async (req, res) => {
         const { name, email, photoUrl, userUid } = req.body;
         const id = req.params.id;
@@ -382,15 +383,21 @@ const run = async () => {
           },
         };
 
-        const result = await contestCollection.updateOne(query, updateDoc);
+        const contestResult = await contestCollection.updateOne(
+          query,
+          updateDoc
+        );
 
-        if (result.matchedCount === 0) {
-          return res.status(403).send({
-            message:
-              "Action forbidden. Either you are not the creator or winner already declared.",
-          });
+        if (contestResult.matchedCount > 0) {
+          const query = { email: email };
+          const userUpdate = {
+            $inc: {
+              wins: 1,
+            },
+          };
+          await usersCollection.updateOne(query, userUpdate);
         }
-        res.send(result);
+        res.send(contestResult);
       }
     );
 
@@ -880,6 +887,19 @@ const run = async () => {
       const cursor = participationCollection
         .find(query)
         .sort({ registeredAt: -1 });
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    //leaderboard user api
+    app.get("/leaderboard", async (req, res) => {
+      const role = req.query.role;
+      const query = {};
+      if (role) {
+        query.role = role;
+      }
+
+      const cursor = usersCollection.find(query).sort({ wins: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
