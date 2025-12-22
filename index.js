@@ -904,6 +904,21 @@ const run = async () => {
       res.send(result);
     });
 
+    //update profile
+    app.get("/update-profile", async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        return res.status(400).send({ message: "Email is required" });
+      }
+
+      const query = { email: email };
+
+      const result = await usersCollection.findOne(query);
+
+      res.send(result);
+    });
+
     //sent a ping to confirm
     // await client.db("admin").command({ ping: 1 });
     console.log(
