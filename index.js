@@ -246,9 +246,9 @@ const run = async () => {
         query.creatorEmail = email;
         console.log(email);
         // check again with decoded email
-        if (email !== req.decoded_email) {
-          return res.status(403).send({ message: "forbidden access" });
-        }
+        // if (email !== req.decoded_email) {
+        //   return res.status(403).send({ message: "forbidden access" });
+        // }
       }
 
       //all contest page confirmed query
