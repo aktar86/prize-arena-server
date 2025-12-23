@@ -949,6 +949,31 @@ const run = async () => {
       res.send(result);
     });
 
+    //my win contests
+    app.get("/my-won-contests", async (req, res) => {
+      try {
+        const email = req.query.email;
+
+        if (!email) {
+          return res.status(400).send({ message: "email not found" });
+        }
+
+        const query = {
+          "winner.email": email,
+          status: "Closed",
+          winner: { $ne: null },
+        };
+
+        const cursor = contestCollection.find(query);
+        const result = await cursor.toArray();
+
+        res.send(result);
+      } catch (error) {
+        console.log(error);
+        res.status(500).json({ error: "Internal Server error" });
+      }
+    });
+
     //sent a ping to confirm
     // await client.db("admin").command({ ping: 1 });
     console.log(
