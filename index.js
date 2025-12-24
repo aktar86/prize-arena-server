@@ -236,22 +236,57 @@ const run = async () => {
     });
     //---------------------------------------------------------------
     // contest related api
+    // app.get("/contests", async (req, res) => {
+    //   const { email, status, searchText } = req.query;
+
+    //   let query = {};
+
+    //   //my contest query
+    //   if (email) {
+    //     query.creatorEmail = email;
+    //     console.log(email);
+    //     // check again with decoded email
+    //     // if (email !== req.decoded_email) {
+    //     //   return res.status(403).send({ message: "forbidden access" });
+    //     // }
+    //   }
+
+    //   //all contest page confirmed query
+    //   if (status) {
+    //     if (status === "Confirmed") {
+    //       query.status = { $in: ["Confirmed", "Closed"] };
+    //     } else {
+    //       query.status = status;
+    //     }
+    //   }
+
+    //   // search bar logic fix
+    //   if (searchText) {
+    //     query.$or = [
+    //       { contestTitle: { $regex: searchText, $options: "i" } },
+    //       { contestCategory: { $regex: searchText, $options: "i" } },
+    //     ];
+    //   }
+
+    //   const cursor = contestCollection
+    //     .find(query)
+    //     .sort({ participantsCount: -1 });
+    //   const result = await cursor.toArray();
+    //   res.send(result);
+    // });
+
+    // -----
     app.get("/contests", async (req, res) => {
-      const { email, status, searchText } = req.query;
+      const { email, status, searchText, page = 1, limit = 10 } = req.query;
 
       let query = {};
 
-      //my contest query
+      // my contest query
       if (email) {
         query.creatorEmail = email;
-        console.log(email);
-        // check again with decoded email
-        // if (email !== req.decoded_email) {
-        //   return res.status(403).send({ message: "forbidden access" });
-        // }
       }
 
-      //all contest page confirmed query
+      // status filter
       if (status) {
         if (status === "Confirmed") {
           query.status = { $in: ["Confirmed", "Closed"] };
@@ -260,7 +295,7 @@ const run = async () => {
         }
       }
 
-      // search bar logic fix
+      // search logic
       if (searchText) {
         query.$or = [
           { contestTitle: { $regex: searchText, $options: "i" } },
@@ -268,11 +303,24 @@ const run = async () => {
         ];
       }
 
-      const cursor = contestCollection
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const contests = await contestCollection
         .find(query)
-        .sort({ participantsCount: -1 });
-      const result = await cursor.toArray();
-      res.send(result);
+        .sort({ participantsCount: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .toArray();
+
+      const total = await contestCollection.countDocuments(query);
+
+      res.send({
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / limit),
+        contests,
+      });
     });
 
     //for popular contest
