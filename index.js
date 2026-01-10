@@ -251,22 +251,57 @@ const run = async () => {
     });
     //---------------------------------------------------------------
     // contest related api
+    // app.get("/contests", async (req, res) => {
+    //   const { email, status, searchText } = req.query;
+
+    //   let query = {};
+
+    //   //my contest query
+    //   if (email) {
+    //     query.creatorEmail = email;
+    //     console.log(email);
+    //     // check again with decoded email
+    //     // if (email !== req.decoded_email) {
+    //     //   return res.status(403).send({ message: "forbidden access" });
+    //     // }
+    //   }
+
+    //   //all contest page confirmed query
+    //   if (status) {
+    //     if (status === "Confirmed") {
+    //       query.status = { $in: ["Confirmed", "Closed"] };
+    //     } else {
+    //       query.status = status;
+    //     }
+    //   }
+
+    //   // search bar logic fix
+    //   if (searchText) {
+    //     query.$or = [
+    //       { contestTitle: { $regex: searchText, $options: "i" } },
+    //       { contestCategory: { $regex: searchText, $options: "i" } },
+    //     ];
+    //   }
+
+    //   const cursor = contestCollection
+    //     .find(query)
+    //     .sort({ participantsCount: -1 });
+    //   const result = await cursor.toArray();
+    //   res.send(result);
+    // });
+
+    // -----
     app.get("/contests", async (req, res) => {
-      const { email, status, searchText } = req.query;
+      const { email, status, searchText, page = 1, limit = 10 } = req.query;
 
       let query = {};
 
-      //my contest query
+      // my contest query
       if (email) {
         query.creatorEmail = email;
-        console.log(email);
-        // check again with decoded email
-        // if (email !== req.decoded_email) {
-        //   return res.status(403).send({ message: "forbidden access" });
-        // }
       }
 
-      //all contest page confirmed query
+      // status filter
       if (status) {
         if (status === "Confirmed") {
           query.status = { $in: ["Confirmed", "Closed"] };
@@ -275,7 +310,7 @@ const run = async () => {
         }
       }
 
-      // search bar logic fix
+      // search logic
       if (searchText) {
         query.$or = [
           { contestTitle: { $regex: searchText, $options: "i" } },
@@ -283,9 +318,29 @@ const run = async () => {
         ];
       }
 
-      const cursor = contestCollection
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const contests = await contestCollection
         .find(query)
-        .sort({ participantsCount: -1 });
+        .sort({ participantsCount: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .toArray();
+
+      const total = await contestCollection.countDocuments(query);
+
+      res.send({
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / limit),
+        contests,
+      });
+    });
+
+    // contest for charts
+    app.get("/contests/charts", async (req, res) => {
+      const cursor = contestCollection.find();
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -962,6 +1017,31 @@ const run = async () => {
       }
 
       res.send(result);
+    });
+
+    //my win contests
+    app.get("/my-won-contests", async (req, res) => {
+      try {
+        const email = req.query.email;
+
+        if (!email) {
+          return res.status(400).send({ message: "email not found" });
+        }
+
+        const query = {
+          "winner.email": email,
+          status: "Closed",
+          winner: { $ne: null },
+        };
+
+        const cursor = contestCollection.find(query);
+        const result = await cursor.toArray();
+
+        res.send(result);
+      } catch (error) {
+        console.log(error);
+        res.status(500).json({ error: "Internal Server error" });
+      }
     });
 
     //sent a ping to confirm
