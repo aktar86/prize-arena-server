@@ -323,6 +323,13 @@ const run = async () => {
       });
     });
 
+    // contest for charts
+    app.get("/contests/charts", async (req, res) => {
+      const cursor = contestCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
     //for popular contest
     app.get("/contests/popular-contests", async (req, res) => {
       const cursor = contestCollection
