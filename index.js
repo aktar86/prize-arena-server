@@ -117,6 +117,21 @@ const run = async () => {
       res.send(result);
     });
 
+    //barchars API
+    app.get("/users/wins", async (req, res) => {
+      try {
+        const query = {
+          wins: { $exists: true, $gt: 0 },
+          role: { $ne: "admin" },
+        };
+        const cursor = usersCollection.find(query).sort({ createAt: -1 });
+        const result = await cursor.toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Error fetching winners" });
+      }
+    });
+
     //for useRole hook api
     app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
