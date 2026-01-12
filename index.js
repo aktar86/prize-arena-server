@@ -77,6 +77,26 @@ const run = async () => {
     const participationCollection = db.collection("participation");
     const submittedCollection = db.collection("submit_tasks");
 
+    // estimated count
+    app.get("/estimated-counts", async (req, res) => {
+      try {
+        const users = await usersCollection.estimatedDocumentCount();
+        const creators = await creatorsCollection.estimatedDocumentCount();
+        const contests = await contestCollection.estimatedDocumentCount();
+        const participants =
+          await participationCollection.estimatedDocumentCount();
+
+        res.status(200).send({
+          users,
+          creators,
+          contests,
+          participants,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to get estimated counts" });
+      }
+    });
+
     //middle more with database access
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded_email;
